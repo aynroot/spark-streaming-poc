@@ -1,0 +1,29 @@
+plugins {
+    id 'java'
+}
+
+group 'io.relayr'
+version '1.0-SNAPSHOT'
+
+sourceCompatibility = 1.8
+
+repositories {
+    mavenCentral()
+}
+
+ext.versions = [
+        scala: '2.11',
+        apacheSpark: '2.4.4',
+        lombok: '1.16.20'
+]
+
+dependencies {
+    implementation group: 'org.apache.spark', name: "spark-streaming_$versions.scala", version: versions.apacheSpark
+    implementation group: 'org.apache.spark', name: "spark-core_$versions.scala", version: versions.apacheSpark
+    implementation group: 'org.apache.spark', name: "spark-sql_$versions.scala", version: versions.apacheSpark
+    implementation group: 'org.apache.spark', name: "spark-sql-kafka-0-10_$versions.scala", version: versions.apacheSpark
+
+    testCompile group: 'junit', name: 'junit', version: '4.12'
+
+    compileOnly group: 'org.projectlombok', name: 'lombok', version: versions.lombok
+}
