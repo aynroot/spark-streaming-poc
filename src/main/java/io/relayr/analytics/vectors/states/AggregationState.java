@@ -57,7 +57,7 @@ public class AggregationState implements Serializable {
         } else {
             System.out.println(String.format("Ignoring late arrival %s %s. " +
                     "\n\tmaxSeenEventTime = %s, " +
-                    "\n\ttimstamp(maxSeenEventTime.getTime() - Mappings.vectorsWatermarks.get(vectorId) * 1000) = %s\n",
+                    "\n\ttimestamp(maxSeenEventTime.getTime() - Mappings.vectorsWatermarks.get(vectorId) * 1000) = %s\n",
                     vectorId, reading.getCoarseGrainedTimestamp(), maxSeenEventTime, new Timestamp(maxSeenEventTime.getTime() - Mappings.vectorsWatermarks.get(vectorId) * 1000)));
         }
     }

@@ -42,7 +42,8 @@ public class StructuredStreamingPOCVectors {
         SparkSession spark = getSparkSession();
         spark.sparkContext().setLogLevel("WARN");
 
-        // 3 - Create a Dataset representing the stream of input files
+        spark.streams().addListener(new QueryListener());
+
         Dataset<Row> rawStream = spark
                 .readStream()
                 .format("kafka")
@@ -107,7 +108,7 @@ public class StructuredStreamingPOCVectors {
                 .format("kafka")
                 .option("kafka.bootstrap.servers", "localhost:9092")
                 .option("topic", "test-out")
-                .queryName("vectorization")
+                .queryName("vectorization-v1")
                 .start()
                 .awaitTermination();
     }
@@ -194,6 +195,8 @@ public class StructuredStreamingPOCVectors {
         return SparkSession.builder()
                 .config("spark.driver.memory", "2g")
                 .config("spark.executor.memory", "2g")
+                .config("spark.sql.streaming.metricsEnabled", "true")
+                .config("spark.sql.streaming.minBatchesToRetain", 360) // desired retention = 1 hour
                 .config("spark.sql.streaming.checkpointLocation", "checkpoints")
                 .config("spark.sql.shuffle.partitions", "8")
                 .master("local[*]")

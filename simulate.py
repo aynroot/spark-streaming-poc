@@ -5,7 +5,7 @@ from kafka import KafkaProducer
 
 producer = KafkaProducer(bootstrap_servers='localhost:9092', value_serializer=lambda v: json.dumps(v).encode('utf-8'))
 
-for multiplier in range(100):
+for multiplier in range(10000):
     print(f'sending data, multiplier = {multiplier}')
     for i in range(100):
         device_id = f'd{i % 3}'
