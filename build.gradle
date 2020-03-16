@@ -23,7 +23,23 @@ dependencies {
     implementation group: 'org.apache.spark', name: "spark-sql_$versions.scala", version: versions.apacheSpark
     implementation group: 'org.apache.spark', name: "spark-sql-kafka-0-10_$versions.scala", version: versions.apacheSpark
 
-    testCompile group: 'junit', name: 'junit', version: '4.12'
+    implementation group: 'com.google.protobuf', name: 'protobuf-java', version: '3.11.4'
+
+    testImplementation group: 'junit', name: 'junit', version: '4.12'
+    testImplementation group: 'org.assertj', name: 'assertj-core', version: '3.10.0'
 
     compileOnly group: 'org.projectlombok', name: 'lombok', version: versions.lombok
+}
+
+task buildProtoClasses {
+    def protosDir = "$projectDir/src/main/protos"
+    doLast {
+        file("$protosDir").eachFile  { file ->
+            if (file.name.endsWith('.proto')) {
+                exec {
+                    commandLine "sh", "-c", "protoc --proto_path=$protosDir --java_out=$projectDir/src/main/java $file.absolutePath"
+                }
+            }
+        }
+    }
 }

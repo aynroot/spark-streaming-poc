@@ -38,6 +38,41 @@ public class StructuredStreamingPOCVectors {
             .add("value", "double", false)
             .add("timestamp", "timestamp", false);
 
+    // TODO: data validation on input: how to do?
+
+    /*
+    NOT ALLOWED
+    - Changes in the number or type (i.e. different source) of input sources
+    - Changes to subscribed topics/files
+    - Any changes (that is, additions, deletions, or schema modifications) to the stateful operations of a streaming query
+      - Streaming aggregation: For example, sdf.groupBy("a").agg(...). Any change in number or type of grouping keys or aggregates is not allowed.
+      - Streaming deduplication: For example, sdf.dropDuplicates("a"). Any change in number or type of grouping keys or aggregates is not allowed.
+      - Stream-stream join: For example, sdf1.join(sdf2, ...) (i.e. both inputs are generated with sparkSession.readStream).
+        Changes in the schema or equi-joining columns are not allowed.
+        Changes in join type (outer or inner) not allowed.
+        Other changes in the join condition are ill-defined.
+      - Arbitrary stateful operation: For example, sdf.groupByKey(...).mapGroupsWithState(...) or sdf.groupByKey(...).flatMapGroupsWithState(...).
+        Any change to the schema of the user-defined state and the type of timeout is not allowed.
+        Any change within the user-defined state-mapping function are allowed, but the semantic effect of the change depends on the user-defined logic.
+        If you really want to support state schema changes, then you can explicitly encode/decode your complex state data structures into bytes using an encoding/decoding scheme that supports schema migration.
+        For example, if you save your state as Avro-encoded bytes, then you are free to change the Avro-state-schema between query restarts as the binary state will always be restored successfully.
+    - Output sink changes: Kafka sink to file sink is not allowed.
+    - Changes to output directory of a file sink is not allowed: sdf.writeStream.format("parquet").option("path", "/somePath") to sdf.writeStream.format("parquet").option("path", "/anotherPath")
+
+    ALLOWED:
+    - Addition / deletion of filters is allowed
+    - Changes in projections with same output schema is allowed: sdf.selectExpr("stringColumn AS json").writeStream to sdf.selectExpr("anotherStringColumn AS json").writeStream
+    - Addition/deletion/modification of rate limits is allowed: spark.readStream.format("kafka").option("subscribe", "topic") to spark.readStream.format("kafka").option("subscribe", "topic").option("maxOffsetsPerTrigger", ...)
+    - _Some_ changes in the type of output sink:
+      - File sink to Kafka sink is allowed. Kafka will see only the new data.
+      - Kafka sink changed to foreach, or vice versa is allowed.
+      - Changes to output topic is allowed: sdf.writeStream.format("kafka").option("topic", "someTopic") to sdf.writeStream.format("kafka").option("topic", "anotherTopic")
+
+    CONDITIONALLY ALLOWED:
+    - Changes in projections with different output schema are conditionally allowed: sdf.selectExpr("a").writeStream to sdf.selectExpr("b").writeStream is allowed only if the output sink allows the schema change from "a" to "b".
+    - Changes to the user-defined foreach sink (that is, the ForeachWriter code) is allowed, but the semantics of the change depends on the code.
+     */
+
     public static void main(String[] args) throws Exception {
         SparkSession spark = getSparkSession();
         spark.sparkContext().setLogLevel("WARN");
@@ -63,15 +98,15 @@ public class StructuredStreamingPOCVectors {
         Dataset<EnhancedDeviceReading> vectorizedReadings = rawReadings.flatMap((FlatMapFunction<DeviceReading, EnhancedDeviceReading>) reading -> {
             List<EnhancedDeviceReading> enhancedReadings = new ArrayList<>();
             for (String vectorId : Mappings.deviceToVectors.get(reading.getDevice()).split(",")) {
-                EnhancedDeviceReading enhancedReading = new EnhancedDeviceReading();
-                enhancedReading.setReading(reading);
-                enhancedReading.setVectorId(vectorId);
-                enhancedReading.setReceivedTimestamp(new Timestamp(reading.getKafkaTimestamp()));
-
                 Integer coarseGrainStep = Mappings.featuresCoarseGrainSteps.get(reading.getName());
-                enhancedReading.setCoarseGrainedTimestamp(Timestamp.from(Instant.ofEpochMilli(
-                        reading.getTimestamp().getTime() / coarseGrainStep * coarseGrainStep
-                )));
+                EnhancedDeviceReading enhancedReading = EnhancedDeviceReading.builder()
+                        .reading(reading)
+                        .vectorId(vectorId)
+                        .receivedTimestamp(new Timestamp(reading.getKafkaTimestamp()))
+                        .coarseGrainedTimestamp(Timestamp.from(Instant.ofEpochMilli(
+                                reading.getTimestamp().getTime() / coarseGrainStep * coarseGrainStep
+                        )))
+                        .build();
                 enhancedReadings.add(enhancedReading);
             }
             return enhancedReadings.iterator();
@@ -82,7 +117,7 @@ public class StructuredStreamingPOCVectors {
                 .flatMapGroupsWithState(
                         StructuredStreamingPOCVectors.aggregationSpec(),
                         OutputMode.Append(),
-                        Encoders.kryo(AggregationState.class),
+                        Encoders.BINARY(),
                         Encoders.tuple(Encoders.kryo(MetaData.class), Encoders.kryo(Vector.class)),
                         GroupStateTimeout.ProcessingTimeTimeout()
                 )
@@ -103,30 +138,31 @@ public class StructuredStreamingPOCVectors {
                 .writeStream()
                 .outputMode(OutputMode.Append())
                 .trigger(Trigger.ProcessingTime(10, TimeUnit.SECONDS))
-//                .format("console")
-//                .option("truncate", false)
-                .format("kafka")
-                .option("kafka.bootstrap.servers", "localhost:9092")
-                .option("topic", "test-out")
-                .queryName("vectorization-v1")
+                .format("console")
+                .option("truncate", false)
+//                .format("kafka")
+//                .option("kafka.bootstrap.servers", "localhost:9092")
+//                .option("topic", "test-out")
+                .queryName("vectorization-v3")
                 .start()
                 .awaitTermination();
     }
 
-    private static FlatMapGroupsWithStateFunction<String, EnhancedDeviceReading, AggregationState, Tuple2<MetaData, Vector>> aggregationSpec() {
-        return (FlatMapGroupsWithStateFunction<String, EnhancedDeviceReading, AggregationState, Tuple2<MetaData, Vector>>)
+    private static FlatMapGroupsWithStateFunction<String, EnhancedDeviceReading, byte[], Tuple2<MetaData, Vector>> aggregationSpec() {
+        return (FlatMapGroupsWithStateFunction<String, EnhancedDeviceReading, byte[], Tuple2<MetaData, Vector>>)
                 (vectorId, valuesIterator, sparkState) -> {
                     System.out.println(String.format("%s | Current processing time: %s",
                             vectorId, new Timestamp(sparkState.getCurrentProcessingTimeMs())));
 
                     if (sparkState.hasTimedOut()) {
                         System.out.println(String.format("%s aggregation state is timing out.", vectorId));
-                        List<Tuple2<MetaData, Vector>> results = sparkState.get().handleTimeout();
+
+                        List<Tuple2<MetaData, Vector>> results = AggregationState.deserialize(sparkState.get()).handleTimeout();
                         sparkState.remove();
                         return results.iterator();
                     }
 
-                    AggregationState state = sparkState.exists() ? sparkState.get() : new AggregationState(vectorId);
+                    AggregationState state = sparkState.exists() ? AggregationState.deserialize(sparkState.get()) : new AggregationState(vectorId);
                     // values in `values` iterator come in random order
                     // need to presort according to the received timestamp
                     // to maintain order per device in a group's micro-batch
@@ -135,21 +171,13 @@ public class StructuredStreamingPOCVectors {
                     // check that values indeed came unsorted, and we need to resort
                     double prevValue = -1.0;
                     for (EnhancedDeviceReading value : values) {
-                        if (value.getReading().getKafkaTimestamp() <= prevValue)
+                        if (value.getReading().getKafkaTimestamp() <= prevValue) {
                             System.out.println(String.format("AGGREGATION: unsorted iterator (len(values) == %d)", values.size()));
+                        }
                         prevValue = value.getReading().getKafkaTimestamp();
                     }
 
                     values.sort(Comparator.comparing(EnhancedDeviceReading::getReceivedTimestamp));
-
-                    // check that values have constantly increasing `values` after sorting
-                    // i.e. we didn't screw up the order by sorting
-                    prevValue = -1.0;
-                    for (EnhancedDeviceReading value : values) {
-                        if (value.getReading().getValue() <= prevValue)
-                            System.out.println("VIOLATION: values should be monotonic!!");
-                        prevValue = value.getReading().getValue();
-                    }
 
                     values.forEach(reading -> {
                         state.update(reading);
@@ -157,7 +185,7 @@ public class StructuredStreamingPOCVectors {
                     });
                     List<Tuple2<MetaData, Vector>> result = state.getAggregatedVectors();
 
-                    sparkState.update(state);
+                    sparkState.update(state.serialize());
                     return result.iterator();
                 };
     }
@@ -189,7 +217,6 @@ public class StructuredStreamingPOCVectors {
                     return results.iterator();
                 };
     }
-
 
     private static SparkSession getSparkSession() {
         return SparkSession.builder()

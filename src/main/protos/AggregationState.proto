@@ -1,0 +1,32 @@
+syntax = "proto3";
+package iforest;
+
+option java_package = "io.relayr.analytics.vectors.states.protos";
+option java_outer_classname = "AggregationStateProto";
+
+import "google/protobuf/wrappers.proto";
+
+message AggregationState {
+    message ValuesPool {
+        repeated double values = 1;
+    }
+    message LatestValue {
+        int64 timestamp = 1;
+        google.protobuf.DoubleValue value = 2; // allows null values
+    }
+
+    message FeatureAveragePool {
+        map<string, ValuesPool> pool = 1;
+    }
+    message FeatureLatestValues {
+        map<string, LatestValue> latestValue = 1;
+    }
+
+    string vectorId = 1;
+
+    int64 maxSeenEventTime = 2;
+    repeated int64 bufferedTimestamps = 3;
+
+    map<int64, FeatureAveragePool> averagePools = 4;
+    map<int64, FeatureLatestValues> latestValues = 5;
+}

@@ -15,7 +15,7 @@ public class QueryListener extends StreamingQueryListener {
                 new TypeToken<HashMap<String, HashMap<Integer, Long>>>() {
                 }.getType());
 
-        System.out.println("Offset for partition 8: " + offsets.get("test").get(8));
+        System.out.println("Offsets: " + offsets.get("test"));
     }
 
     @Override
